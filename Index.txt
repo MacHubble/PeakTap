@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PeakTap AR — Identifica le Vette al Tocco</title>
+  <!-- Tailwind CSS per lo styling moderno e responsivo -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter per UI pulita e JetBrains Mono per dati telemetrici -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      overscroll-behavior: none;
+      touch-action: manipulation;
+      background-color: #090d16;
+      color: #f8fafc;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .font-mono-tech {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Effetto vetro satinato per HUD e schede outdoor */
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.72);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+
+    /* Animazione del mirino nel punto toccato dall'utente */
+    @keyframes tapRipple {
+      0% {
+        transform: translate(-50%, -50%) scale(0.4);
+        opacity: 1;
+      }
+      70% {
+        transform: translate(-50%, -50%) scale(1.25);
+        opacity: 0.85;
+      }
+      100% {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 1;
+      }
+    }
+
+    @keyframes pulseRing {
+      0% {
+        transform: translate(-50%, -50%) scale(0.9);
+        opacity: 0.9;
+      }
+      100% {
+        transform: translate(-50%, -50%) scale(2.1);
+        opacity: 0;
+      }
+    }
+
+    .tap-marker-core {
+      animation: tapRipple 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    .tap-marker-ring {
+      animation: pulseRing 1.6s infinite ease-out;
+    }
+
+    /* Stile personalizzato per lo slider di calibrazione bussola */
+    input[type=range].compass-slider {
+      -webkit-appearance: none;
+      background: transparent;
+    }
+    input[type=range].compass-slider::-webkit-slider-runnable-track {
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.22);
+    }
+    input[type=range].compass-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 20px;
+      width: 20px;
+      border-radius: 50%;
+      background: #38bdf8;
+      border: 2px solid #ffffff;
+      margin-top: -7px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+    }
+  </style>
+</head>
+<body class="w-screen h-screen overflow-hidden relative">
+
+  <!-- =====================================================================
+       1. SCHERMATA INIZIALE (PERMESSI FOTOCAMERA, GPS E SENSORI iOS/ANDROID)
+       ===================================================================== -->
+  <div id="start-screen" class="fixed inset-0 z-50 flex flex-col items-center justify-center p-6 bg-gradient-to-b from-slate-950 via-slate-900 to-sky-950">
+    <div class="max-w-md w-full glass-panel rounded-3xl p-7 shadow-2xl text-center space-y-6">
+      <!-- Icona Vetta Stilizzata -->
+      <div class="mx-auto w-20 h-20 rounded-2xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center shadow-inner">
+        <svg class="w-11 h-11 text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m8 3 4 8 5-5 5 15H2L8 3z"/>
+          <path d="M4.14 15.08c2.62-1.57 5.24-1.43 7.86.42 2.74 1.94 5.49 2 8.23.19"/>
+        </svg>
+      </div>
+
+      <div class="space-y-2">
+        <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase bg-sky-500/20 text-sky-300 border border-sky-400/30">
+          Realtà Aumentata Outdoor
+        </span>
+        <h1 class="text-3xl font-extrabold tracking-tight text-white">PeakTap AR</h1>
+        <p class="text-sm text-slate-300 leading-relaxed">
+          Inquadra l'orizzonte e <strong>tocca con un dito</strong> qualsiasi montagna sullo schermo per scoprire nome, altitudine e distanza in tempo reale.
+        </p>
+      </div>
+
+      <!-- Riepilogo permessi richiesti -->
+      <div class="bg-slate-950/60 rounded-2xl p-4 text-left space-y-2.5 text-xs text-slate-300 border border-white/10">
+        <div class="flex items-center gap-2.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <span><strong>Fotocamera posteriore</strong> per la vista in diretta</span>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <span class="w-2 h-2 rounded-full bg-sky-400"></span>
+          <span><strong>GPS e Altitudine</strong> per scaricare le cime nel raggio di 50 km</span>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+          <span><strong>Bussola e Giroscopio</strong> per calcolare l'angolo del tocco</span>
+        </div>
+      </div>
+
+      <!-- Box messaggi di errore/avviso (sostituisce alert) -->
+      <div id="start-error-box" class="hidden rounded-xl bg-rose-500/20 border border-rose-500/40 p-3 text-xs text-rose-200 text-left"></div>
+
+      <button id="btn-start" class="w-full py-4 px-6 rounded-2xl bg-sky-500 hover:bg-sky-400 active:scale-[0.98] transition-all font-bold text-slate-950 text-base shadow-lg shadow-sky-500/30 flex items-center justify-center gap-2 cursor-pointer">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.3" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+        </svg>
+        <span>Avvia Fotocamera e Sensori</span>
+      </button>
+
+      <p class="text-[11px] text-slate-400">
+        Nota: su smartphone è necessario aprire la pagina tramite connessione sicura <strong>HTTPS</strong>.
+      </p>
+    </div>
+  </div>
+
+  <!-- =====================================================================
+       2. VIEWPORT FOTOCAMERA A SCHERMO INTERO + LAYER INTERATTIVO AL TOCCO
+       ===================================================================== -->
+  <main id="ar-viewport" class="relative w-full h-full overflow-hidden bg-slate-950">
+    <!-- Flusso Video Fotocamera -->
+    <video id="camera-feed" autoplay playsinline muted class="absolute inset-0 w-full h-full object-cover"></video>
+
+    <!-- Linea dell'orizzonte virtuale (0° elevazione) per riferimento visivo -->
+    <div id="horizon-line" class="pointer-events-none absolute left-0 right-0 border-t border-dashed border-sky-400/40 flex justify-between px-3 text-[10px] font-mono-tech text-sky-300/70 transition-transform duration-75" style="top: 50%;">
+      <span>ORIZZONTE 0°</span>
+      <span>0°</span>
+    </div>
+
+    <!-- Mirino centrale discreto (indica dove punta il centro del telefono) -->
+    <div class="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 opacity-40">
+      <div class="absolute top-1/2 left-0 right-0 h-[1px] bg-white"></div>
+      <div class="absolute left-1/2 top-0 bottom-0 w-[1px] bg-white"></div>
+    </div>
+
+    <!-- Layer Trasparente che cattura il tocco dell'utente -->
+    <div id="touch-layer" class="absolute inset-0 z-10 cursor-crosshair"></div>
+
+    <!-- ===================================================================
+         3. MARCATORE ANIMATO SUL PUNTO TOCCATO DALL'UTENTE
+         =================================================================== -->
+    <div id="tap-marker" class="hidden pointer-events-none absolute z-20" style="left: 50%; top: 50%;">
+      <!-- Anello pulsante esterno -->
+      <div class="tap-marker-ring absolute w-14 h-14 rounded-full border-2 border-sky-400"></div>
+      <!-- Nucleo centrale -->
+      <div class="tap-marker-core absolute w-8 h-8 rounded-full bg-sky-400/30 border-2 border-white shadow-lg flex items-center justify-center">
+        <div class="w-2 h-2 rounded-full bg-amber-300"></div>
+      </div>
+      <!-- Etichetta coordinate angolari del tocco -->
+      <div id="tap-angle-badge" class="absolute left-6 -top-6 whitespace-nowrap px-2 py-0.5 rounded-md bg-slate-950/85 border border-white/20 text-[10px] font-mono-tech text-sky-300 shadow">
+        Az: --° | El: --°
+      </div>
+    </div>
+
+    <!-- ===================================================================
+         4. HUD SUPERIORE (TELEMETRIA GPS, BUSSOLA, INCLINAZIONE E VETTE)
+         =================================================================== -->
+    <header class="fixed top-0 left-0 right-0 z-30 p-3 sm:p-4 pointer-events-none space-y-2">
+      <div class="max-w-2xl mx-auto glass-panel rounded-2xl p-3 shadow-lg pointer-events-auto">
+        <!-- Riga 1: Stato GPS, Vette caricate e Tasto Info/Calibrazione -->
+        <div class="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-white/10">
+          <div class="flex items-center gap-2 min-w-0">
+            <span id="gps-dot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
+            <span id="gps-status-text" class="text-xs font-medium text-slate-200 truncate">Ricerca segnale GPS...</span>
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <span id="peaks-count-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-sky-500/20 text-sky-300 border border-sky-400/30">
+              0 vette
+            </span>
+            <button id="btn-toggle-calib" class="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-slate-200 transition" title="Calibra Bussola">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"/>
+                <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Riga 2: Dati Telemetrici in tempo reale -->
+        <div class="grid grid-cols-3 gap-2 text-center font-mono-tech">
+          <div class="bg-slate-950/50 rounded-xl py-1.5 px-2">
+            <div class="text-[10px] uppercase text-slate-400 font-sans">Direzione</div>
+            <div id="hud-azimuth" class="text-sm font-bold text-sky-400">---° N</div>
+          </div>
+          <div class="bg-slate-950/50 rounded-xl py-1.5 px-2">
+            <div class="text-[10px] uppercase text-slate-400 font-sans">Inclinazione</div>
+            <div id="hud-pitch" class="text-sm font-bold text-emerald-400">0.0°</div>
+          </div>
+          <div class="bg-slate-950/50 rounded-xl py-1.5 px-2">
+            <div class="text-[10px] uppercase text-slate-400 font-sans">Tua Quota</div>
+            <div id="hud-altitude" class="text-sm font-bold text-amber-300">-- m</div>
+          </div>
+        </div>
+
+        <!-- Pannello Calibrazione Bussola (Espandibile) -->
+        <div id="calibration-drawer" class="hidden mt-3 pt-2.5 border-t border-white/10 space-y-1.5">
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-slate-300 font-medium">Calibrazione Bussola (Offset)</span>
+            <div class="flex items-center gap-2">
+              <span id="calib-value-label" class="font-mono-tech font-bold text-sky-400">0°</span>
+              <button id="btn-reset-calib" class="text-[11px] text-slate-400 hover:text-white underline">Reset</button>
+            </div>
+          </div>
+          <input id="compass-offset-slider" type="range" min="-30" max="30" step="0.5" value="0" class="w-full compass-slider cursor-pointer">
+          <p class="text-[10px] text-slate-400">
+            Se il magnetometro è leggermente starato, sposta lo slider per allineare la direzione reale.
+          </p>
+        </div>
+      </div>
+
+      <!-- Pillola suggerimento rapido -->
+      <div id="hint-pill" class="max-w-fit mx-auto px-3.5 py-1.5 rounded-full glass-panel text-xs text-slate-200 shadow flex items-center gap-2">
+        <span class="text-amber-300">👆</span>
+        <span>Tocca una vetta sullo schermo per identificarla</span>
+      </div>
+    </header>
+
+    <!-- ===================================================================
+         5. SCHEDA INFERIORE (BOTTOM SHEET) CON RISULTATO IDENTIFICAZIONE
+         =================================================================== -->
+    <section id="result-sheet" class="fixed bottom-0 left-0 right-0 z-40 p-3 sm:p-4 transform translate-y-full transition-transform duration-300 ease-out pointer-events-none">
+      <div class="max-w-2xl mx-auto glass-panel rounded-3xl p-5 shadow-2xl border border-white/20 pointer-events-auto">
+        <!-- Maniglia superiore e pulsante chiusura -->
+        <div class="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <div class="flex items-center gap-2">
+              <span id="match-badge" class="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                Vetta Identificata
+              </span>
+              <span id="match-accuracy" class="text-xs font-mono-tech text-slate-400">
+                Scarto: 1.2°
+              </span>
+            </div>
+            <h2 id="peak-name" class="text-2xl font-extrabold text-white mt-1 leading-tight">
+              Monte Bianco
+            </h2>
+          </div>
+
+          <button id="btn-close-sheet" class="p-2 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 transition" aria-label="Chiudi scheda">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Griglia Dati Principali della Vetta -->
+        <div id="peak-stats-grid" class="grid grid-cols-3 gap-2.5 my-3">
+          <div class="bg-slate-950/65 rounded-2xl p-3 border border-white/10">
+            <div class="text-[11px] text-slate-400">Altitudine</div>
+            <div id="peak-elevation" class="text-lg font-extrabold font-mono-tech text-amber-300 mt-0.5">4.810 m</div>
+          </div>
+          <div class="bg-slate-950/65 rounded-2xl p-3 border border-white/10">
+            <div class="text-[11px] text-slate-400">Distanza</div>
+            <div id="peak-distance" class="text-lg font-extrabold font-mono-tech text-sky-400 mt-0.5">34.2 km</div>
+          </div>
+          <div class="bg-slate-950/65 rounded-2xl p-3 border border-white/10">
+            <div class="text-[11px] text-slate-400">Azimut Reale</div>
+            <div id="peak-bearing" class="text-lg font-extrabold font-mono-tech text-emerald-400 mt-0.5">245° O</div>
+          </div>
+        </div>
+
+        <!-- Sezione Cime Alternative vicine al punto toccato (se presenti nel raggio di tolleranza) -->
+        <div id="alternatives-container" class="hidden mt-3 pt-3 border-t border-white/10">
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+            Altre cime vicine al punto toccato:
+          </div>
+          <div id="alternatives-list" class="flex flex-wrap gap-2"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Toast notifiche di sistema (es. modalità simulazione attivata) -->
+    <div id="toast-banner" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-30 hidden px-4 py-2 rounded-full bg-slate-900/90 border border-amber-400/40 text-xs text-amber-200 shadow-lg whitespace-nowrap">
+    </div>
+  </main>
+
+  <!-- =====================================================================
+       LOGICA JAVASCRIPT (FOTOCAMERA, GPS, SENSORI, OVERPASS API & RAYCASTING)
+       ===================================================================== -->
+  <script>
+    /**
+     * STATO GLOBALE DELL'APPLICAZIONE
+     */
+    const state = {
+      // Posizione dell'utente
+      userLat: null,
+      userLon: null,
+      userAlt: 500, // Fallback altitudine in metri se il GPS non fornisce altitude
+      hasAltitude: false,
+
+      // Orientamento dispositivo in gradi
+      azimuth: 0,         // Direzione bussola (0° = Nord, 90° = Est, 180° = Sud, 270° = Ovest)
+      pitch: 0,           // Inclinazione verticale (0° = telefono verticale puntato all'orizzonte, + su, - giù)
+      compassOffset: 0,   // Correzione manuale utente (-30° / +30°)
+
+      // Parametri ottici stimati fotocamera
+      horizontalFOV: 60,  // Campo visivo orizzontale standard smartphone (~60°)
+
+      // Database vette caricate
+      peaks: [],
+      isSimulatedData: false,
+      overpassLoaded: false
+    };
+
+    /**
+     * RIFERIMENTI AGLI ELEMENTI DOM
+     */
+    const dom = {
+      startScreen: document.getElementById('start-screen'),
+      startErrorBox: document.getElementById('start-error-box'),
+      btnStart: document.getElementById('btn-start'),
+      video: document.getElementById('camera-feed'),
+      touchLayer: document.getElementById('touch-layer'),
+      horizonLine: document.getElementById('horizon-line'),
+      tapMarker: document.getElementById('tap-marker'),
+      tapAngleBadge: document.getElementById('tap-angle-badge'),
+      gpsDot: document.getElementById('gps-dot'),
+      gpsStatusText: document.getElementById('gps-status-text'),
+      peaksCountBadge: document.getElementById('peaks-count-badge'),
+      hudAzimuth: document.getElementById('hud-azimuth'),
+      hudPitch: document.getElementById('hud-pitch'),
+      hudAltitude: document.getElementById('hud-altitude'),
+      btnToggleCalib: document.getElementById('btn-toggle-calib'),
+      calibrationDrawer: document.getElementById('calibration-drawer'),
+      compassOffsetSlider: document.getElementById('compass-offset-slider'),
+      calibValueLabel: document.getElementById('calib-value-label'),
+      btnResetCalib: document.getElementById('btn-reset-calib'),
+      hintPill: document.getElementById('hint-pill'),
+      resultSheet: document.getElementById('result-sheet'),
+      btnCloseSheet: document.getElementById('btn-close-sheet'),
+      matchBadge: document.getElementById('match-badge'),
+      matchAccuracy: document.getElementById('match-accuracy'),
+      peakName: document.getElementById('peak-name'),
+      peakStatsGrid: document.getElementById('peak-stats-grid'),
+      peakElevation: document.getElementById('peak-elevation'),
+      peakDistance: document.getElementById('peak-distance'),
+      peakBearing: document.getElementById('peak-bearing'),
+      alternativesContainer: document.getElementById('alternatives-container'),
+      alternativesList: document.getElementById('alternatives-list'),
+      toastBanner: document.getElementById('toast-banner')
+    };
+
+    /**
+     * 1. AVVIO APPLICAZIONE E RICHIESTA PERMESSI
+     * Gestisce fotocamera, sensori di movimento (incluso iOS 13+ requestPermission) e GPS.
+     */
+    dom.btnStart.addEventListener('click', async () => {
+      dom.startErrorBox.classList.add('hidden');
+      dom.btnStart.disabled = true;
+      dom.btnStart.innerHTML = '<span>Inizializzazione sensori...</span>';
+
+      try {
+        // A. Richiesta permessi orientamento su iOS Safari (deve avvenire direttamente dentro un evento click)
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+          const permissionState = await DeviceOrientationEvent.requestPermission();
+          if (permissionState !== 'granted') {
+            throw new Error('Permesso bussola/giroscopio negato. Abilita i sensori di movimento nelle impostazioni di Safari.');
+          }
+        }
+
+        // B. Avvio Fotocamera Posteriore
+        await startCamera();
+
+        // C. Avvio Listener Sensori (Bussola & Giroscopio)
+        startOrientationTracking();
+
+        // D. Avvio Geolocalizzazione GPS
+        startGeolocation();
+
+        // Nascondi schermata iniziale
+        dom.startScreen.classList.add('hidden');
+      } catch (err) {
+        console.error('Errore avvio PeakTap AR:', err);
+        dom.startErrorBox.textContent = err.message || 'Impossibile accedere alla fotocamera o ai sensori. Verifica di usare HTTPS.';
+        dom.startErrorBox.classList.remove('hidden');
+        dom.btnStart.disabled = false;
+        dom.btnStart.innerHTML = '<span>Riprova Avvio</span>';
+      }
+    });
+
+    /**
+     * Attiva lo stream video della fotocamera posteriore ('environment')
+     */
+    async function startCamera() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Il tuo browser non supporta l\'accesso alla fotocamera (getUserMedia).');
+      }
+
+      const constraints = {
+        audio: false,
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      dom.video.srcObject = stream;
+
+      // Prova a leggere il campo visivo reale se esposto dalle capabilities del track video
+      try {
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack && typeof videoTrack.getCapabilities === 'function') {
+          const caps = videoTrack.getCapabilities();
+          if (caps.fieldOfView) {
+            state.horizontalFOV = caps.fieldOfView;
+          }
+        }
+      } catch (e) {
+        // Mantiene il valore predefinito di 60°
+      }
+    }
+
+    /**
+     * 2. LETTURA BUSSOLA (AZIMUT) E INCLINAZIONE (PITCH)
+     */
+    function startOrientationTracking() {
+      // Su Android Chrome 'deviceorientationabsolute' fornisce il Nord geografico reale
+      window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+      // Fallback standard e iOS Safari (che espone webkitCompassHeading)
+      window.addEventListener('deviceorientation', handleOrientation, true);
+    }
+
+    function handleOrientation(event) {
+      let heading = null;
+
+      // 1. iOS Safari fornisce direttamente la bussola corretta rispetto al Nord magnetico
+      if (typeof event.webkitCompassHeading === 'number') {
+        heading = event.webkitCompassHeading;
+      } 
+      // 2. Android / Standard W3C: alpha va in senso antiorario, quindi 360 - alpha
+      else if (event.alpha !== null) {
+        // Se l'evento non è assoluto e abbiamo già ricevuto eventi assoluti, ignoriamo
+        if (event.type === 'deviceorientation' && event.absolute === false) {
+          return;
+        }
+        heading = (360 - event.alpha) % 360;
+      }
+
+      if (heading !== null) {
+        // Applica eventuale offset di calibrazione manuale dell'utente
+        const calibratedAzimuth = (heading + state.compassOffset + 360) % 360;
+        // Smoothing leggero (filtro passa-basso) per evitare tremolii
+        state.azimuth = smoothAngle(state.azimuth, calibratedAzimuth, 0.25);
+      }
+
+      // Calcolo dell'inclinazione verticale (Pitch) quando il telefono è tenuto in verticale (Portrait)
+      // event.beta = 90° quando il telefono è perfettamente verticale (puntato all'orizzonte, 0° elevazione)
+      // event.beta > 90° quando si inclina verso l'alto (elevazione positiva)
+      // event.beta < 90° quando si inclina verso il basso (elevazione negativa)
+      if (typeof event.beta === 'number') {
+        const screenAngle = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+        let rawPitch = 0;
+
+        if (screenAngle === 0) {
+          rawPitch = event.beta - 90;
+        } else if (screenAngle === 90) {
+          rawPitch = -event.gamma - 90;
+        } else if (screenAngle === -90 || screenAngle === 270) {
+          rawPitch = event.gamma - 90;
+        } else {
+          rawPitch = event.beta - 90;
+        }
+
+        // Limita pitch tra -85° e +85° per evitare singolarità allo zenit/nadir
+        rawPitch = Math.max(-85, Math.min(85, rawPitch));
+        state.pitch = state.pitch * 0.75 + rawPitch * 0.25;
+      }
+
+      updateHUD();
+    }
+
+    /**
+     * Interpolazione angolare fluida che gestisce correttamente il passaggio 359° <-> 0°
+     */
+    function smoothAngle(current, target, factor) {
+      let diff = ((target - current + 540) % 360) - 180;
+      return (current + diff * factor + 360) % 360;
+    }
+
+    /**
+     * Aggiorna i valori telemetrici nell'HUD superiore e sposta la linea dell'orizzonte
+     */
+    function updateHUD() {
+      const azRounded = Math.round(state.azimuth);
+      const cardinal = getCardinalDirection(azRounded);
+      dom.hudAzimuth.textContent = `${azRounded}° ${cardinal}`;
+
+      const pitchSign = state.pitch > 0 ? '+' : '';
+      dom.hudPitch.textContent = `${pitchSign}${state.pitch.toFixed(1)}°`;
+
+      // Aggiorna posizione visiva della linea dell'orizzonte sullo schermo
+      const verticalFOV = getVerticalFOV();
+      const offsetPercent = (state.pitch / verticalFOV) * 100;
+      const horizonTop = Math.max(5, Math.min(95, 50 + offsetPercent));
+      dom.horizonLine.style.top = `${horizonTop}%`;
+    }
+
+    /**
+     * 3. GEOLOCALIZZAZIONE GPS E SCARICAMENTO VETTE (OVERPASS API)
+     */
+    function startGeolocation() {
+      if (!('geolocation' in navigator)) {
+        activateFallbackLocation('GPS non supportato dal browser');
+        return;
+      }
+
+      navigator.geolocation.watchPosition(
+        async (position) => {
+          const { latitude, longitude, altitude, accuracy } = position.coords;
+          const isFirstFix = state.userLat === null;
+
+          state.userLat = latitude;
+          state.userLon = longitude;
+
+          if (typeof altitude === 'number' && !isNaN(altitude)) {
+            state.userAlt = Math.round(altitude);
+            state.hasAltitude = true;
+            dom.hudAltitude.textContent = `${state.userAlt} m`;
+          } else {
+            dom.hudAltitude.textContent = `~${state.userAlt} m`;
+          }
+
+          dom.gpsDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0';
+          dom.gpsStatusText.textContent = `GPS attivo (±${Math.round(accuracy)}m)`;
+
+          // Scarica le vette una volta ottenuto il primo fix GPS valido
+          if (isFirstFix && !state.overpassLoaded) {
+            state.overpassLoaded = true;
+            await fetchNearbyPeaks(latitude, longitude);
+          }
+        },
+        (error) => {
+          console.warn('Errore GPS:', error);
+          if (state.userLat === null) {
+            activateFallbackLocation('Segnale GPS assente (Modalità Demo)');
+          }
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 10000,
+          timeout: 15000
+        }
+      );
+    }
+
+    /**
+     * Se il GPS non è disponibile (es. test indoor su desktop), imposta una posizione demo sulle Alpi
+     */
+    async function activateFallbackLocation(reason) {
+      // Coordinate demo: vista spettacolare sul gruppo del Monte Bianco / Courmayeur
+      state.userLat = 45.7969;
+      state.userLon = 6.9689;
+      state.userAlt = 1224;
+      dom.gpsDot.className = 'w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0';
+      dom.gpsStatusText.textContent = reason;
+      dom.hudAltitude.textContent = `${state.userAlt} m`;
+      showToast('Posizione simulata (Courmayeur) attivata per test.');
+      await fetchNearbyPeaks(state.userLat, state.userLon);
+    }
+
+    /**
+     * Interroga Overpass API di OpenStreetMap per ottenere tutte le vette (natural=peak) entro 50 km
+     */
+    async function fetchNearbyPeaks(lat, lon) {
+      dom.peaksCountBadge.textContent = 'Caricamento vette...';
+      const radiusMeters = 50000; // 50 km
+
+      const query = `
+        [out:json][timeout:15];
+        node["natural"="peak"]["name"](around:${radiusMeters},${lat},${lon});
+        out body;
+      `;
+
+      try {
+        const response = await fetch('https://overpass-api.de/api/interpreter', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+          },
+          body: 'data=' + encodeURIComponent(query)
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error ${response.status}`);
+        }
+
+        const data = await response.json();
+        const parsedPeaks = (data.elements || [])
+          .filter(el => el.tags && el.tags.name)
+          .map(el => {
+            // Estrae altitudine (può essere "3841", "3841 m", ecc.)
+            let ele = parseFloat(String(el.tags.ele || '').replace(',', '.').replace(/[^\d.-]/g, ''));
+            if (isNaN(ele)) ele = null;
+
+            return {
+              id: el.id,
+              name: el.tags.name,
+              lat: el.lat,
+              lon: el.lon,
+              ele: ele
+            };
+          });
+
+        if (parsedPeaks.length > 0) {
+          state.peaks = parsedPeaks;
+          state.isSimulatedData = false;
+          dom.peaksCountBadge.textContent = `${state.peaks.length} vette OSM`;
+          showToast(`Caricate ${state.peaks.length} vette reali entro 50 km.`);
+        } else {
+          // Nessuna montagna trovata nel raggio di 50 km (es. pianura o mare): genera vette simulate
+          loadSimulatedPeaks(lat, lon);
+        }
+      } catch (err) {
+        console.warn('Overpass API non raggiungibile, uso vette simulate di fallback:', err);
+        loadSimulatedPeaks(lat, lon);
+      }
+    }
+
+    /**
+     * Genera 12 vette virtuali distribuite a 360° intorno all'utente per poter testare
+     * l'app anche in città di pianura o offline.
+     */
+    function loadSimulatedPeaks(lat, lon) {
+      const mockTemplates = [
+        { name: 'Monte Aurora (Demo)', bearing: 0, distKm: 28, ele: 2450 },
+        { name: 'Punta Tramontana (Demo)', bearing: 32, distKm: 35, ele: 2890 },
+        { name: 'Corno d\'Oriente (Demo)', bearing: 75, distKm: 22, ele: 1980 },
+        { name: 'Cima del Sole (Demo)', bearing: 112, distKm: 41, ele: 3120 },
+        { name: 'Monte Meridiano (Demo)', bearing: 155, distKm: 30, ele: 2640 },
+        { name: 'Vetta del Vento (Demo)', bearing: 185, distKm: 45, ele: 3480 },
+        { name: 'Picco Sud-Ovest (Demo)', bearing: 218, distKm: 19, ele: 1750 },
+        { name: 'Gran Cresta (Demo)', bearing: 252, distKm: 38, ele: 3290 },
+        { name: 'Monte Ponente (Demo)', bearing: 285, distKm: 26, ele: 2310 },
+        { name: 'Cima Stellare (Demo)', bearing: 325, distKm: 33, ele: 2760 }
+      ];
+
+      state.peaks = mockTemplates.map((m, idx) => {
+        const dest = destinationPoint(lat, lon, m.distKm, m.bearing);
+        return {
+          id: `sim-${idx}`,
+          name: m.name,
+          lat: dest.lat,
+          lon: dest.lon,
+          ele: state.userAlt + m.ele // Quota relativa all'utente così è sempre visibile sopra l'orizzonte
+        };
+      });
+
+      state.isSimulatedData = true;
+      dom.peaksCountBadge.textContent = `${state.peaks.length} vette Demo`;
+      showToast('Nessuna vetta reale entro 50 km: attivate vette demo a 360°.');
+    }
+
+    /**
+     * 4. LOGICA DI RICONOSCIMENTO AL TOCCO SULLO SCHERMO (RAYCASTING ANGOLARE)
+     */
+    dom.touchLayer.addEventListener('click', (event) => {
+      if (state.userLat === null || state.peaks.length === 0) {
+        showToast('Attendi il caricamento del GPS e delle vette...');
+        return;
+      }
+
+      const rect = dom.touchLayer.getBoundingClientRect();
+      const clickX = event.clientX - rect.left;
+      const clickY = event.clientY - rect.top;
+
+      // Calcola l'offset normalizzato del tocco rispetto al centro dello schermo [-0.5, +0.5]
+      const normX = (clickX / rect.width) - 0.5;
+      const normY = 0.5 - (clickY / rect.height); // + verso l'alto, - verso il basso
+
+      // Calcola gli angoli FOV orizzontale e verticale
+      const hFOV = state.horizontalFOV;
+      const vFOV = getVerticalFOV();
+
+      // Angoli esatti corrispondenti al pixel toccato sullo schermo
+      const tapAzimuth = (state.azimuth + normX * hFOV + 360) % 360;
+      const tapElevation = state.pitch + normY * vFOV;
+
+      // Posiziona e anima il mirino visivo sul punto toccato
+      showTapMarker(clickX, clickY, tapAzimuth, tapElevation);
+
+      // Cerca le vette più vicine a (tapAzimuth, tapElevation)
+      identifyPeakAtAngles(tapAzimuth, tapElevation);
+    });
+
+    /**
+     * Calcola il campo visivo verticale in base all'aspect ratio del viewport
+     */
+    function getVerticalFOV() {
+      const w = window.innerWidth || 1;
+      const h = window.innerHeight || 1;
+      return state.horizontalFOV * (h / w);
+    }
+
+    /**
+     * Confronta gli angoli del tocco con tutte le vette nel database
+     */
+    function identifyPeakAtAngles(tapAzimuth, tapElevation) {
+      const MAX_TOLERANCE_DEG = 8.5; // Raggio di tolleranza in gradi attorno al dito
+
+      const candidates = state.peaks.map(peak => {
+        const distKm = haversineDistanceKm(state.userLat, state.userLon, peak.lat, peak.lon);
+        const bearing = calculateBearing(state.userLat, state.userLon, peak.lat, peak.lon);
+        const elevationAngle = calculateElevationAngle(state.userAlt, peak.ele, distKm);
+
+        // Differenza angolare orizzontale (gestendo il wrap-around a 360°)
+        let dAz = ((bearing - tapAzimuth + 540) % 360) - 180;
+        // Differenza angolare verticale
+        let dEl = elevationAngle - tapElevation;
+
+        // Distanza angolare euclidea totale in gradi
+        const angularDistance = Math.sqrt(dAz * dAz + dEl * dEl);
+
+        return {
+          ...peak,
+          distKm,
+          bearing,
+          elevationAngle,
+          angularDistance
+        };
+      })
+      .filter(p => p.angularDistance <= MAX_TOLERANCE_DEG)
+      .sort((a, b) => a.angularDistance - b.angularDistance);
+
+      renderIdentificationResult(candidates, tapAzimuth, tapElevation);
+    }
+
+    /**
+     * Aggiorna e apre la scheda inferiore (Bottom Sheet) con i dettagli della vetta trovata
+     */
+    function renderIdentificationResult(candidates, tapAz, tapEl) {
+      dom.hintPill.classList.add('hidden');
+      dom.resultSheet.classList.remove('translate-y-full');
+
+      if (candidates.length === 0) {
+        // Nessuna vetta trovata nel cono del tocco
+        dom.matchBadge.textContent = 'Nessuna Vetta Trovata';
+        dom.matchBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide bg-slate-700 text-slate-300';
+        dom.matchAccuracy.textContent = `Puntamento: ${Math.round(tapAz)}° / ${tapEl.toFixed(1)}°`;
+        dom.peakName.textContent = 'Nessuna cima catalogata qui';
+        dom.peakStatsGrid.classList.add('hidden');
+        dom.alternativesContainer.classList.add('hidden');
+        return;
+      }
+
+      // Mostra la vetta migliore (distanza angolare minima)
+      const best = candidates[0];
+      dom.peakStatsGrid.classList.remove('hidden');
+
+      dom.matchBadge.textContent = state.isSimulatedData ? 'Vetta Demo Identificata' : 'Vetta Identificata';
+      dom.matchBadge.className = 'px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide bg-emerald-500/20 text-emerald-300 border border-emerald-400/30';
+      dom.matchAccuracy.textContent = `Scarto angolare: ${best.angularDistance.toFixed(1)}°`;
+
+      displayPeakDetails(best);
+
+      // Se ci sono altre vette vicine al punto toccato (es. cresta affollata), mostrale come alternative cliccabili
+      if (candidates.length > 1) {
+        dom.alternativesContainer.classList.remove('hidden');
+        dom.alternativesList.innerHTML = '';
+
+        candidates.slice(1, 5).forEach(alt => {
+          const btn = document.createElement('button');
+          btn.className = 'px-3 py-1.5 rounded-xl bg-white/10 hover:bg-sky-500/30 border border-white/15 text-xs text-slate-200 transition flex items-center gap-1.5 cursor-pointer';
+          const eleStr = alt.ele ? `${Math.round(alt.ele)}m` : '';
+          btn.innerHTML = `<span class="font-semibold">${alt.name}</span> <span class="text-slate-400 font-mono-tech">${eleStr}</span>`;
+          btn.addEventListener('click', () => {
+            dom.matchAccuracy.textContent = `Scarto angolare: ${alt.angularDistance.toFixed(1)}°`;
+            displayPeakDetails(alt);
+          });
+          dom.alternativesList.appendChild(btn);
+        });
+      } else {
+        dom.alternativesContainer.classList.add('hidden');
+      }
+    }
+
+    function displayPeakDetails(peak) {
+      dom.peakName.textContent = peak.name;
+      dom.peakElevation.textContent = peak.ele !== null ? `${Math.round(peak.ele).toLocaleString('it-IT')} m` : 'N/D';
+      dom.peakDistance.textContent = `${peak.distKm.toFixed(1)} km`;
+      const azRound = Math.round(peak.bearing);
+      dom.peakBearing.textContent = `${azRound}° ${getCardinalDirection(azRound)}`;
+    }
+
+    /**
+     * Posiziona il mirino animato sul punto toccato
+     */
+    function showTapMarker(x, y, az, el) {
+      dom.tapMarker.style.left = `${x}px`;
+      dom.tapMarker.style.top = `${y}px`;
+      dom.tapAngleBadge.textContent = `Az: ${Math.round(az)}° | El: ${el.toFixed(1)}°`;
+
+      // Riavvia l'animazione CSS
+      dom.tapMarker.classList.remove('hidden');
+      const core = dom.tapMarker.querySelector('.tap-marker-core');
+      core.style.animation = 'none';
+      void core.offsetWidth; // Trigger reflow
+      core.style.animation = '';
+    }
+
+    /**
+     * 5. FUNZIONI MATEMATICHE GEODETICHE
+     */
+
+    // Distanza in km tra due coordinate GPS (Formula di Haversine)
+    function haversineDistanceKm(lat1, lon1, lat2, lon2) {
+      const R = 6371.0; // Raggio medio terrestre in km
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+
+    // Azimut iniziale (bearing) da punto A a punto B in gradi [0..360]
+    function calculateBearing(lat1, lon1, lat2, lon2) {
+      const phi1 = toRad(lat1);
+      const phi2 = toRad(lat2);
+      const dLambda = toRad(lon2 - lon1);
+
+      const y = Math.sin(dLambda) * Math.cos(phi2);
+      const x = Math.cos(phi1) * Math.sin(phi2) -
+                Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLambda);
+      const theta = Math.atan2(y, x);
+      return (toDeg(theta) + 360) % 360;
+    }
+
+    // Angolo di elevazione apparente tenendo conto della differenza di quota e della curvatura terrestre
+    function calculateElevationAngle(userAltMeters, peakAltMeters, distKm) {
+      const distMeters = Math.max(10, distKm * 1000);
+      const targetAlt = peakAltMeters !== null ? peakAltMeters : (userAltMeters + 1000);
+
+      // Correzione curvatura terrestre + rifrazione atmosferica standard (k ≈ 0.13)
+      // Abbassamento apparente h_curv = d^2 / (2 * R_eff), con R_eff ≈ 6371000 / (1 - 0.13) ≈ 7323000 m
+      const earthCurvatureDrop = (distMeters * distMeters) / (2 * 7323000);
+      const deltaAlt = (targetAlt - userAltMeters) - earthCurvatureDrop;
+
+      return toDeg(Math.atan2(deltaAlt, distMeters));
+    }
+
+    // Calcola una coordinata di destinazione data partenza, distanza (km) e azimut (gradi)
+    function destinationPoint(lat, lon, distKm, bearingDeg) {
+      const R = 6371.0;
+      const delta = distKm / R;
+      const theta = toRad(bearingDeg);
+      const phi1 = toRad(lat);
+      const lambda1 = toRad(lon);
+
+      const phi2 = Math.asin(
+        Math.sin(phi1) * Math.cos(delta) +
+        Math.cos(phi1) * Math.sin(delta) * Math.cos(theta)
+      );
+      const lambda2 = lambda1 + Math.atan2(
+        Math.sin(theta) * Math.sin(delta) * Math.cos(phi1),
+        Math.cos(delta) - Math.sin(phi1) * Math.sin(phi2)
+      );
+
+      return {
+        lat: toDeg(phi2),
+        lon: ((toDeg(lambda2) + 540) % 360) - 180
+      };
+    }
+
+    function getCardinalDirection(deg) {
+      const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSO', 'SO', 'OSO', 'O', 'ONO', 'NO', 'NNO'];
+      const index = Math.round(((deg % 360) / 22.5)) % 16;
+      return dirs[index];
+    }
+
+    function toRad(deg) {
+      return (deg * Math.PI) / 180;
+    }
+
+    function toDeg(rad) {
+      return (rad * 180) / Math.PI;
+    }
+
+    /**
+     * 6. CONTROLLI INTERFACCIA (CALIBRAZIONE, CHIUSURA SCHEDA, TOAST)
+     */
+    dom.btnToggleCalib.addEventListener('click', () => {
+      dom.calibrationDrawer.classList.toggle('hidden');
+    });
+
+    dom.compassOffsetSlider.addEventListener('input', (e) => {
+      state.compassOffset = parseFloat(e.target.value);
+      const sign = state.compassOffset > 0 ? '+' : '';
+      dom.calibValueLabel.textContent = `${sign}${state.compassOffset}°`;
+    });
+
+    dom.btnResetCalib.addEventListener('click', () => {
+      state.compassOffset = 0;
+      dom.compassOffsetSlider.value = 0;
+      dom.calibValueLabel.textContent = '0°';
+    });
+
+    dom.btnCloseSheet.addEventListener('click', () => {
+      dom.resultSheet.classList.add('translate-y-full');
+      dom.tapMarker.classList.add('hidden');
+      dom.hintPill.classList.remove('hidden');
+    });
+
+    let toastTimeout = null;
+    function showToast(message) {
+      dom.toastBanner.textContent = message;
+      dom.toastBanner.classList.remove('hidden');
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        dom.toastBanner.classList.add('hidden');
+      }, 4500);
+    }
+  </script>
+</body>
+</html>
