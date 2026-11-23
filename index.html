@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>PeakTap AR - Identifica le vette al tocco</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #0b0f19;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #fff;
+    }
+    #camera-feed {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: 1;
+    }
+    #touch-layer {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 5;
+      cursor: crosshair;
+    }
+    /* Schermata iniziale */
+    #start-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+    }
+    #start-screen h1 {
+      font-size: 2rem;
+      margin-bottom: 12px;
+      letter-spacing: -0.5px;
+    }
+    #start-screen p {
+      color: #94a3b8;
+      font-size: 0.95rem;
+      max-width: 340px;
+      line-height: 1.5;
+      margin-bottom: 28px;
+    }
+    .btn-primary {
+      background: #38bdf8;
+      color: #0f172a;
+      border: none;
+      padding: 16px 28px;
+      font-size: 1.05rem;
+      font-weight: 700;
+      border-radius: 14px;
+      cursor: pointer;
+      box-shadow: 0 10px 25px rgba(56, 189, 248, 0.35);
+      transition: transform 0.15s ease;
+    }
+    .btn-primary:active {
+      transform: scale(0.96);
+    }
+    /* HUD Superiore */
+    #hud-top {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      z-index: 10;
+      background: rgba(15, 23, 42, 0.72);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 14px;
+      padding: 10px 14px;
+      font-size: 0.8rem;
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .hud-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .badge {
+      background: rgba(56, 189, 248, 0.2);
+      color: #7dd3fc;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 0.75rem;
+    }
+    .calibration-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      padding-top: 6px;
+    }
+    .calibration-row input[type="range"] {
+      flex: 1;
+      accent-color: #38bdf8;
+    }
+    /* Mirino centrale discreto */
+    #crosshair {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      width: 22px;
+      height: 22px;
+      transform: translate(-50%, -50%);
+      border: 1.5px solid rgba(255, 255, 255, 0.45);
+      border-radius: 50%;
+      z-index: 4;
+      pointer-events: none;
+      display: none;
+    }
+    #crosshair::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 4px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.8);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+    }
+    /* Indicatore di tocco */
+    #tap-marker {
+      position: fixed;
+      width: 44px;
+      height: 44px;
+      border: 2.5px solid #38bdf8;
+      background: rgba(56, 189, 248, 0.2);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 8;
+      display: none;
+      box-shadow: 0 0 15px rgba(56, 189, 248, 0.6);
+      animation: pulse 1.2s infinite ease-out;
+    }
+    @keyframes pulse {
+      0% { transform: translate(-50%, -50%) scale(0.9); opacity: 1; }
+      70% { transform: translate(-50%, -50%) scale(1.35); opacity: 0.4; }
+      100% { transform: translate(-50%, -50%) scale(0.9); opacity: 1; }
+    }
+    /* Scheda risultato in basso */
+    #result-card {
+      position: fixed;
+      bottom: 20px;
+      left: 16px;
+      right: 16px;
+      z-index: 12;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(56, 189, 248, 0.4);
+      border-radius: 18px;
+      padding: 16px 18px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+      display: none;
+      transition: all 0.2s ease;
+    }
+    #result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 6px;
+    }
+    #peak-name {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+    #peak-ele {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    #peak-meta {
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      margin-bottom: 10px;
+    }
+    #alternatives {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .alt-chip {
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      color: #e2e8f0;
+      padding: 5px 10px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+    #hint-banner {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9;
+      background: rgba(15, 23, 42, 0.7);
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      color: #e2e8f0;
+      pointer-events: none;
+      display: none;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Schermata iniziale per attivare i permessi -->
+  <div id="start-screen">
+    <h1>PeakTap AR</h1>
+    <p>Inquadra l'orizzonte e tocca una montagna sullo schermo per scoprirne nome, altitudine e distanza.</p>
+    <button id="start-btn" class="btn-primary">Attiva Fotocamera e Sensori</button>
+  </div>
+
+  <!-- Flusso video fotocamera -->
+  <video id="camera-feed" autoplay playsinline muted></video>
+
+  <!-- Mirino centrale -->
+  <div id="crosshair"></div>
+
+  <!-- Livello interattivo per il tocco -->
+  <div id="touch-layer"></div>
+
+  <!-- Cerchio sul punto toccato -->
+  <div id="tap-marker"></div>
+
+  <!-- HUD superiore con telemetria e calibrazione -->
+  <div id="hud-top">
+    <div class="hud-row">
+      <span id="telemetry-dir">Bussola: --° | Incl: --°</span>
+      <span id="peaks-status" class="badge">Caricamento vette...</span>
+    </div>
+    <div class="hud-row">
+      <span id="telemetry-gps">GPS: ricerca posizione...</span>
+    </div>
+    <div class="calibration-row">
+      <span>Calibra bussola:</span>
+      <input type="range" id="compass-offset" min="-30" max="30" value="0" step="1" />
+      <span id="offset-val">0°</span>
+    </div>
+  </div>
+
+  <!-- Suggerimento iniziale -->
+  <div id="hint-banner">Tocca una cima sullo schermo per identificarla</div>
+
+  <!-- Scheda risultato -->
+  <div id="result-card">
+    <div id="result-header">
+      <div id="peak-name">Nome Vetta</div>
+      <div id="peak-ele">0 m</div>
+    </div>
+    <div id="peak-meta">Distanza: -- km • Direzione: --°</div>
+    <div id="alternatives"></div>
+  </div>
+
+  <script>
+    // Stato dell'applicazione
+    const state = {
+      lat: null,
+      lon: null,
+      alt: 100, // Altitudine default in metri
+      heading: 0, // Azimut bussola (0-360)
+      pitch: 0,   // Inclinazione verticale rispetto all'orizzonte (0 = orizzonte)
+      compassOffset: 0,
+      peaks: [],
+      fovH: 62, // Campo visivo orizzontale stimato (gradi)
+      fovV: 48  // Campo visivo verticale stimato (gradi)
+    };
+
+    const startScreen = document.getElementById('start-screen');
+    const startBtn = document.getElementById('start-btn');
+    const video = document.getElementById('camera-feed');
+    const touchLayer = document.getElementById('touch-layer');
+    const tapMarker = document.getElementById('tap-marker');
+    const hudTop = document.getElementById('hud-top');
+    const crosshair = document.getElementById('crosshair');
+    const hintBanner = document.getElementById('hint-banner');
+    const telemetryDir = document.getElementById('telemetry-dir');
+    const telemetryGps = document.getElementById('telemetry-gps');
+    const peaksStatus = document.getElementById('peaks-status');
+    const offsetSlider = document.getElementById('compass-offset');
+    const offsetVal = document.getElementById('offset-val');
+    const resultCard = document.getElementById('result-card');
+    const peakNameEl = document.getElementById('peak-name');
+    const peakEleEl = document.getElementById('peak-ele');
+    const peakMetaEl = document.getElementById('peak-meta');
+    const alternativesEl = document.getElementById('alternatives');
+
+    // Aggiornamento slider calibrazione bussola
+    offsetSlider.addEventListener('input', (e) => {
+      state.compassOffset = parseFloat(e.target.value);
+      offsetVal.textContent = `${state.compassOffset > 0 ? '+' : ''}${state.compassOffset}°`;
+    });
+
+    // Avvio su tocco utente (obbligatorio su iOS Safari)
+    startBtn.addEventListener('click', async () => {
+      try {
+        // 1. Richiedi permessi orientamento su iOS 13+
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+          const response = await DeviceOrientationEvent.requestPermission();
+          if (response !== 'granted') {
+            alert('Permesso sensori negato. La bussola non funzionerà correttamente.');
+          }
+        }
+
+        // 2. Avvia fotocamera posteriore
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+          audio: false
+        });
+        video.srcObject = stream;
+
+        // Adatta il FOV verticale in base alle proporzioni reali dello schermo
+        const aspect = window.innerHeight / window.innerWidth;
+        if (aspect > 1) {
+          state.fovH = 54;
+          state.fovV = state.fovH * aspect;
+        } else {
+          state.fovH = 68;
+          state.fovV = state.fovH * aspect;
+        }
+
+        // Mostra interfaccia AR
+        startScreen.style.display = 'none';
+        hudTop.style.display = 'flex';
+        crosshair.style.display = 'block';
+        hintBanner.style.display = 'block';
+
+        // 3. Avvia ascolto sensori orientamento
+        initOrientation();
+
+        // 4. Avvia GPS
+        initGeolocation();
+
+      } catch (err) {
+        alert('Errore nell\'avvio della fotocamera o dei sensori: ' + err.message + '\nAssicurati di usare HTTPS.');
+      }
+    });
+
+    // Lettura bussola e inclinazione
+    function initOrientation() {
+      const handler = (event) => {
+        let heading = null;
+
+        // iOS WebKit
+        if (typeof event.webkitCompassHeading !== 'undefined' && event.webkitCompassHeading !== null) {
+          heading = event.webkitCompassHeading;
+        } else if (event.alpha !== null) {
+          // Android / Standard (approssimazione)
+          heading = 360 - event.alpha;
+        }
+
+        if (heading !== null) {
+          state.heading = (heading + state.compassOffset + 360) % 360;
+        }
+
+        // Calcolo inclinazione (pitch) rispetto all'orizzonte quando il telefono è tenuto verticale
+        if (event.beta !== null) {
+          // Quando beta = 90°, il telefono è perfettamente verticale (orizzonte = 0°)
+          state.pitch = event.beta - 90;
+        }
+
+        telemetryDir.textContent = `Bussola: ${Math.round(state.heading)}° | Incl: ${state.pitch.toFixed(1)}°`;
+      };
+
+      if ('ondeviceorientationabsolute' in window) {
+        window.addEventListener('deviceorientationabsolute', handler, true);
+      } else {
+        window.addEventListener('deviceorientation', handler, true);
+      }
+    }
+
+    // Geolocalizzazione GPS
+    function initGeolocation() {
+      if (!('geolocation' in navigator)) {
+        telemetryGps.textContent = 'GPS non supportato';
+        loadDemoPeaks(45.9, 7.6);
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          state.lat = pos.coords.latitude;
+          state.lon = pos.coords.longitude;
+          if (pos.coords.altitude !== null) {
+            state.alt = pos.coords.altitude;
+          }
+          telemetryGps.textContent = `GPS: ${state.lat.toFixed(4)}, ${state.lon.toFixed(4)} (${Math.round(state.alt)}m)`;
+          await fetchPeaksFromOSM(state.lat, state.lon);
+        },
+        (err) => {
+          telemetryGps.textContent = 'GPS non disponibile (Modalità Demo)';
+          state.lat = 45.8326;
+          state.lon = 6.8652;
+          state.alt = 1200;
+          loadDemoPeaks(state.lat, state.lon);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
+
+    // Scarica vette reali entro 50 km da OpenStreetMap (Overpass API)
+    async function fetchPeaksFromOSM(lat, lon) {
+      const radiusMeters = 50000;
+      const query = `[out:json][timeout:15];node["natural"="peak"](around:${radiusMeters},${lat},${lon});out body;`;
+      const url = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query);
+
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        const validPeaks = data.elements
+          .filter(el => el.tags && el.tags.name && el.tags.ele)
+          .map(el => ({
+            name: el.tags.name,
+            lat: el.lat,
+            lon: el.lon,
+            ele: parseFloat(el.tags.ele)
+          }))
+          .filter(p => !isNaN(p.ele));
+
+        if (validPeaks.length > 0) {
+          state.peaks = validPeaks;
+          peaksStatus.textContent = `${validPeaks.length} vette caricate`;
+        } else {
+          peaksStatus.textContent = 'Nessuna vetta vicina (Demo)';
+          loadDemoPeaks(lat, lon);
+        }
+      } catch (e) {
+        peaksStatus.textContent = 'Errore rete (Demo)';
+        loadDemoPeaks(lat, lon);
+      }
+    }
+
+    // Vette simulate a 360° per test in pianura o offline
+    function loadDemoPeaks(lat, lon) {
+      const demos = [
+        { name: 'Monte Nord (Demo)', dLat: 0.25, dLon: 0.0, ele: 3250 },
+        { name: 'Cima Nord-Est (Demo)', dLat: 0.18, dLon: 0.22, ele: 2890 },
+        { name: 'Picco Est (Demo)', dLat: 0.0, dLon: 0.30, ele: 3410 },
+        { name: 'Vetta Sud-Est (Demo)', dLat: -0.20, dLon: 0.20, ele: 2740 },
+        { name: 'Monte Sud (Demo)', dLat: -0.28, dLon: 0.0, ele: 3841 },
+        { name: 'Cresta Sud-Ovest (Demo)', dLat: -0.19, dLon: -0.24, ele: 3120 },
+        { name: 'Punta Ovest (Demo)', dLat: 0.0, dLon: -0.26, ele: 2980 },
+        { name: 'Guglia Nord-Ovest (Demo)', dLat: 0.21, dLon: -0.19, ele: 3560 }
+      ];
+      state.peaks = demos.map(d => ({
+        name: d.name,
+        lat: lat + d.dLat,
+        lon: lon + d.dLon,
+        ele: d.ele
+      }));
+      peaksStatus.textContent = `${state.peaks.length} vette Demo`;
+    }
+
+    // Gestione del tocco sullo schermo
+    touchLayer.addEventListener('click', (e) => {
+      if (state.peaks.length === 0 || state.lat === null) return;
+
+      hintBanner.style.display = 'none';
+
+      // Coordinate normalizzate dal centro dello schermo (-0.5 a +0.5)
+      const normX = (e.clientX / window.innerWidth) - 0.5;
+      const normY = 0.5 - (e.clientY / window.innerHeight); // Y positivo verso l'alto
+
+      // Posiziona il cerchio visivo sul tocco
+      tapMarker.style.left = `${e.clientX}px`;
+      tapMarker.style.top = `${e.clientY}px`;
+      tapMarker.style.display = 'block';
+
+      // Angoli puntati dal dito
+      const tapAzimuth = (state.heading + normX * state.fovH + 360) % 360;
+      const tapElevation = state.pitch + normY * state.fovV;
+
+      findNearestPeaks(tapAzimuth, tapElevation);
+    });
+
+    // Calcola distanza geodetica, azimut ed elevazione per ogni vetta
+    function findNearestPeaks(tapAz, tapEl) {
+      const R = 6371000; // Raggio terrestre in metri
+      const lat1 = toRad(state.lat);
+      const lon1 = toRad(state.lon);
+
+      const candidates = state.peaks.map(peak => {
+        const lat2 = toRad(peak.lat);
+        const lon2 = toRad(peak.lon);
+        const dLat = lat2 - lat1;
+        const dLon = lon2 - lon1;
+
+        // Distanza Haversine
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+        const dist = 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+        // Azimut reale (Bearing)
+        const y = Math.sin(dLon) * Math.cos(lat2);
+        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+        const bearing = (toDeg(Math.atan2(y, x)) + 360) % 360;
+
+        // Elevazione apparente con correzione curvatura terrestre e rifrazione
+        const curvatureDrop = (dist * dist) / (2 * R) * 0.87;
+        const dAlt = (peak.ele - state.alt) - curvatureDrop;
+        const elevation = toDeg(Math.atan2(dAlt, dist));
+
+        // Differenza angolare minima rispetto al tocco
+        let dAz = Math.abs(bearing - tapAz);
+        if (dAz > 180) dAz = 360 - dAz;
+        const dEl = Math.abs(elevation - tapEl);
+
+        // Distanza angolare combinata (peso maggiore all'azimut)
+        const angularDist = Math.sqrt(dAz * dAz + (dEl * 0.7) * (dEl * 0.7));
+
+        return {
+          ...peak,
+          distKm: dist / 1000,
+          bearing,
+          elevation,
+          dAz,
+          angularDist
+        };
+      });
+
+      // Ordina per vicinanza angolare al tocco
+      candidates.sort((a, b) => a.angularDist - b.angularDist);
+
+      // Filtra le vette entro un cono di tolleranza (es. 18° per compensare imprecisioni bussola)
+      const matches = candidates.filter(c => c.dAz <= 18);
+
+      if (matches.length > 0) {
+        displayResult(matches[0], matches.slice(1, 4));
+      } else {
+        // Mostra comunque la più vicina in assoluto se fuori tolleranza
+        displayResult(candidates[0], candidates.slice(1, 3), true);
+      }
+    }
+
+    function displayResult(best, others, isFar = false) {
+      resultCard.style.display = 'block';
+      peakNameEl.textContent = best.name + (isFar ? ' (approssimativo)' : '');
+      peakEleEl.textContent = `${Math.round(best.ele).toLocaleString('it-IT')} m`;
+      peakMetaEl.textContent = `Distanza: ${best.distKm.toFixed(1)} km • Direzione: ${Math.round(best.bearing)}° (${getCardinal(best.bearing)})`;
+
+      alternativesEl.innerHTML = '';
+      if (others && others.length > 0) {
+        others.forEach(alt => {
+          const btn = document.createElement('button');
+          btn.className = 'alt-chip';
+          btn.textContent = `${alt.name} (${Math.round(alt.ele)} m)`;
+          btn.onclick = () => displayResult(alt, [best, ...others.filter(o => o !== alt)]);
+          alternativesEl.appendChild(btn);
+        });
+      }
+    }
+
+    function toRad(deg) { return deg * Math.PI / 180; }
+    function toDeg(rad) { return rad * 180 / Math.PI; }
+    function getCardinal(deg) {
+      const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+      return dirs[Math.round(deg / 45) % 8];
+    }
+  </script>
+</body>
+</html>
